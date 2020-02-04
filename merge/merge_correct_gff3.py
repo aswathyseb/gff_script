@@ -28,7 +28,7 @@ def read_gff(gff, feat="gene"):
     stream = csv.reader(open(gff), delimiter="\t")
 
     for row in stream:
-        #print(row)
+
         if row[0].startswith("#"):
             continue
         if row[2] == feat:
@@ -36,11 +36,38 @@ def read_gff(gff, feat="gene"):
             feat_id = extract_attr(attr, "ID=")
             key = ":".join([chrom, start, end, strand, feat_id])
             ann_store[key].append(row)
-            #continue
-        #ann_store[key].append(row)
-        #print(key)
-        #1/0
+            continue
+
+        ann_store[key].append(row)
+        print(key)
+        1/0
     return ann_store
+
+
+def read_ann(fname):
+    """
+    Stores augustus annotated genes
+    """
+    ann_store = defaultdict(list)
+    stream = csv.DictReader(open(fname), delimiter="\t")
+    for row in stream:
+        key = ":".join([row['chrom'],row['start'],row['end'], row['strand']])
+        ann_store[key] = row
+    return ann_store
+
+
+def store_recp_map(fname, species):
+    """
+    Reads a tab-delimited idmap file and returns a dictionary of list.
+    Eg: giraffe_recp_protein_map_stringtie.txt
+    """
+    trans_store = defaultdict(dict)
+    stream = csv.DictReader(open(fname), delimiter="\t")
+    for row in stream:
+        protein_id = species + "_pid"
+        pid = row.get(protein_id)
+        trans_store[pid] = row
+    return trans_store
 
 
 def is_overlap(chrom1, start1, end1, strand1, chrom2, start2, end2, strand2):
@@ -61,9 +88,11 @@ def is_overlap(chrom1, start1, end1, strand1, chrom2, start2, end2, strand2):
         cov = ((end1 - start1) / len1) * 100
 
     if start1 <= start2 and end1 >= end2:
+
         cov = ((end2 - start2) / len2) * 100
 
     if start1 < start2 and (end1 >= start2 and end1 < end2):
+
         # overlap left
         cov = ((end1 - start2) / len1) * 100
     if start1 > start2 and (start1 < end2 and end1 > end2):
@@ -89,7 +118,6 @@ def check_gene_overlap(store, transcript):
 
         if is_overlap(tr_chrom, tr_start, tr_end, tr_strand, gene_chrom, gene_start, gene_end, gene_strand):
             gene_overlap.append(gene)
-
     return gene_overlap
 
 
@@ -125,11 +153,11 @@ def modify_gene_attr(gid, gname, source, qcovs, pident,evidence):
     return new_attr
 
 
-def modify_transcript_attr(uid, tid, tidx, gid, gname, source, qcovs, pident, evidence, term, seen_tuids=set()):
+def modify_transcript_attr(uid, tid, tidx, gid, gname, source, qcovs, pident, evidence, term, seen_tuids):
     parent = gid
     trans_no = tid.split(".")[1]
     uid_mod = gid + ".t" + str(tidx)
-    #print(seen_tuids, "SEEN ? ? ?", len(seen_tuids))
+
     while uid_mod in seen_tuids:
         tidx+=1
         uid_mod = gid + ".t" + str(tidx)
@@ -143,7 +171,7 @@ def modify_transcript_attr(uid, tid, tidx, gid, gname, source, qcovs, pident, ev
 
     else:
         trans_id = gname + ".t" + str(tidx) if term != "gene"  else ".".join([gname, trans_no])
-        if term == "stringtie_transcript" :
+        if term == "stringtie_transcript"  or term == "parent_change":
             new_attr = f'ID={uid_mod};Parent={parent};original_id={uid};transcript_id={trans_id};gene_name={gname};Name={trans_id};best_match={source};query_coverage={qcovs};percentage_identity={pident}'
         else:
             new_attr = f'ID={uid};Parent={parent};original_id={uid};transcript_id={trans_id};gene_name={gname};Name={trans_id};best_match={source};query_coverage={qcovs};percentage_identity={pident}'
@@ -168,12 +196,13 @@ def modify_attr(attr, tid, tidx, gname, term):
     return new_attr
 
 
-def annotate_existing(attr, count, existing_vals, ann_term, parent_gene, seen=set()):
+def annotate_existing(attr, count, existing_vals, ann_term, parent_gene, seen_ids=set()):
     vals1 = copy.deepcopy(existing_vals)
 
     uid, gid, gname, best_match, source, evidence, pident, qcovs = get_attributes(attr)
     d = dict()
-    #seen = set()
+    #seen_ids = set()
+
     for item in vals1:
 
         if item[2] == "gene":
@@ -195,7 +224,7 @@ def annotate_existing(attr, count, existing_vals, ann_term, parent_gene, seen=se
                 tid = uid
 
             if ann_term == "parent_change":
-                gid = parent_gene
+                gid =  parent_gene
                 tid = uid
 
             if ann_term == "transcript_locus":
@@ -204,10 +233,11 @@ def annotate_existing(attr, count, existing_vals, ann_term, parent_gene, seen=se
                 tid = tuid
 
             tran_attr = modify_transcript_attr(uid, tid, count, gid, gname, source, qcovs, pident, evidence,
-                                               ann_term, seen)
+                                               ann_term, seen_ids)
             item[8] = tran_attr
             d[tuid] = extract_attr(tran_attr, "ID=")
-            seen.add(tuid)
+            seen_ids.add(d[tuid])
+
         else:
 
             pid = d[tid]
@@ -284,10 +314,11 @@ def modify_transcript_parent(genes):
     return vals
 
 
-def modify_stringtie_transcript_count(transcripts):
+def modify_stringtie_transcript_count(transcripts, seen_tids):
     trans = copy.deepcopy(transcripts)
     tgname = ""
 
+    #seen_trans = set()
     parent_dict = dict()
     for gene, values in trans.items():
         count = 1
@@ -299,9 +330,8 @@ def modify_stringtie_transcript_count(transcripts):
 
                 tuid, tgid, tgname, tbest_match, tsource, tevidence, tpident, tqcovs = get_attributes(item[8])
                 parent_gene = extract_attr(item[8], "Parent=") # modify transcript parent
-
                 tattrs= modify_transcript_attr(tuid, tuid, count, parent_gene, tgname, tsource, tqcovs, tpident, tevidence,
-                                               "stringtie_transcript" )
+                                               "stringtie_transcript", seen_tids )
                 item[8] = tattrs
                 count+=1
                 parent_dict[tuid] = extract_attr(tattrs, "ID=")
@@ -330,7 +360,8 @@ def create_merged_gff(aug_store, transcript_store):
     new_trans_store = list()
     new_gene_store = defaultdict(list)
     merged_store = list()
-    seen = set()
+    seen, seen_tids = set(), set()
+
     i, tx = 0, 0
 
     prev_gene = ""
@@ -367,13 +398,14 @@ def create_merged_gff(aug_store, transcript_store):
             prev_gene = gene_key
 
             # CASE2 : transcript is annotated and gene is annotated -
-            # Nothing to do except correct transcript suffix numbers and assiginig correct parent id
+            # Nothing to do except correct transcript suffix numbers and assigning correct parent id
             if tr_best_match != "stringtie" and gene_best_match != "augustus":
                 #print("CASE2")
                 annotate = "transcript"  # keeping the annotations from transcript itself, change the  parent to augustus gene
                 parent_gene = extract_attr(gene_attr,"ID=")
 
-                modified_transcript = annotate_existing(gene_attr, tcount, transcript_vals, annotate, parent_gene, seen)
+                modified_transcript = annotate_existing(gene_attr, tcount, transcript_vals, annotate, parent_gene,
+                                                        seen_tids)
                 if gene_key not in seen:
                     merged_store.extend(aug_store[gene_key])
                     seen.add(gene_key)
@@ -386,7 +418,8 @@ def create_merged_gff(aug_store, transcript_store):
                 #print("CASE3")
                 annotate = "transcript_locus" #
                 parent_gene = extract_attr(gene_attr,"ID=")
-                modified_transcript = annotate_existing(gene_attr, tcount, transcript_vals, annotate, parent_gene, seen)
+                modified_transcript = annotate_existing(gene_attr, tcount, transcript_vals, annotate, parent_gene,
+                                                        seen_tids)
                 if gene_key not in seen:
                     merged_store.extend(aug_store[gene_key])
                     seen.add(gene_key)
@@ -394,13 +427,15 @@ def create_merged_gff(aug_store, transcript_store):
                 continue
 
             # CASE 4 : transcript is annotated gene is unannotated - annotate gene with transcript ann
+            # chaange transcript uid and parent
             if tr_best_match != "stringtie"  and gene_best_match == "augustus":
                 #print("CASE4")
                 annotate = "gene"
                 gene_vals = aug_store[gene_key]
                 parent_gene = extract_attr(gene_vals[0][8], "ID=")
-                modified_gene  =  annotate_existing(trans_attrs, tcount, gene_vals, annotate, parent_gene, seen)
-                modified_transcript = annotate_existing(trans_attrs, tcount, transcript_vals, "parent_change", parent_gene, seen)
+                modified_gene  =  annotate_existing(trans_attrs, tcount, gene_vals, annotate, parent_gene,seen)
+                modified_transcript = annotate_existing(trans_attrs, tcount, transcript_vals, "parent_change",
+                                                        parent_gene,seen_tids)
 
                 if gene_key not in seen:
                     merged_store.extend(modified_gene)
@@ -413,7 +448,8 @@ def create_merged_gff(aug_store, transcript_store):
                 #print("CASE5")
                 annotate = "transcript_locus"
                 parent_gene = extract_attr(gene_attr,"ID=")
-                modified_transcript =  annotate_existing(gene_attr, tcount, transcript_vals, annotate,parent_gene, seen)
+                modified_transcript =  annotate_existing(gene_attr, tcount, transcript_vals, annotate,parent_gene,
+                                                         seen_tids)
                 if gene_key not in seen:
                     merged_store.extend(aug_store[gene_key])
                     seen.add(gene_key)
@@ -473,23 +509,20 @@ def create_merged_gff(aug_store, transcript_store):
     # change the parent attribute of the strigtie-specific transcripts
     # to the newly assigned gene-id.
     new_gene_store = modify_transcript_parent(new_gene_store)
-    new_gene_store = modify_stringtie_transcript_count(new_gene_store)
-
+    new_gene_store = modify_stringtie_transcript_count(new_gene_store, seen_tids)
     return merged_store, new_gene_store
 
 
 if __name__ == "__main__":
-    aug_gff = sys.argv[1] #"genes_ann_any.gff3"
-    stringtie_gff = sys.argv[2] #"stringtie_uniq_ann.gff3"
-    species = sys.argv[3] #"giraffe"
+    aug_gff = "test_aug.gff3"
+    stringtie_gff = "stringtie_uniq_ann.gff3"
+    species = "giraffe"
 
     aug_gff_store = read_gff(aug_gff, "gene")
     transcript_gff_store = read_gff(stringtie_gff, "transcript")
 
     merged, added = create_merged_gff(aug_gff_store, transcript_gff_store)
 
-    #print( "FOOOOOO")#, transcript_gff_store)
-    #1/0
     current_keys = list()
     if merged:
         merged_keys = get_merged_keys(merged)
@@ -533,4 +566,3 @@ if __name__ == "__main__":
             for child in childeren:
                 child= list(map(str, child))
                 print("\t".join(child))
-
