@@ -1,5 +1,6 @@
 import csv
 import copy
+import argparse
 
 TEST_AUGUSTUS = "aug.gff3"
 TEST_STRINGTIE = "stringtie.gff3"
@@ -100,10 +101,10 @@ def check_overlap(gmeta, tmeta):
     return overlap_store
 
 
-def get_count(rows, target_str, target_idx):
+def get_trans_count(rows):
 
     # Filter for rows that have the target_str in the index ( target_idx )
-    target_lst = list(filter(lambda l: l[target_idx] == target_str, rows))
+    target_lst = list(filter(lambda l: l[2] == "transcript", rows))
     count = len(target_lst)
     return count
 
@@ -118,6 +119,7 @@ def parse_data(gmeta_data, trans_meta, gstore):
     is_overlapped = len(overlap_store) > 1
     no_overlap = len(overlap_store) == 0
     g_key = overlap_store[0] if is_gene_overlap else ""
+    gene = gstore[g_key]
     gene_meta = gmeta_data.get(g_key, {})
     gene_strand = gene_meta.get('strand', '')
 
@@ -129,7 +131,7 @@ def parse_data(gmeta_data, trans_meta, gstore):
                 no_overlap=no_overlap,
                 is_gene_overlap=is_gene_overlap,
                 g_key=g_key, gene_meta=gene_meta,
-                gene_strand=gene_strand, gene=gstore[g_key], t_best=t_best, g_best=g_best)
+                gene_strand=gene_strand, gene=gene, t_best=t_best, g_best=g_best)
     return data
 
 
@@ -254,6 +256,13 @@ def handle_gene_overlap(data, count, prev_gene="", seen=set()):
     return
 
 
+def get_count(rows, target_str, target_idx):
+
+    # Filter for rows that have the target_str in the index ( target_idx )
+    target_lst = list(filter(lambda l: l[target_idx] == target_str, rows))
+    count = len(target_lst)
+    return count
+
 def inc_count(current_key, prev_gene, count):
     inc = 1
     # This transcript has been seen before
@@ -279,7 +288,8 @@ def create_merged_gff(gene_file, transcript_file):
         if data['is_overlapped']:
             continue
 
-        # CASE 2 : discard if the overlapped gene and transcript do not have the same orientation
+        # CASE 2 : discard if the overlapped gene and
+        # transcript do not have the same orientation
         if is_gene_overlap and data['gene_strand'] != data['trans_strand']:
             continue
 
@@ -308,12 +318,32 @@ def create_merged_gff(gene_file, transcript_file):
     return
 
 
-def main():
+def correct_annotation(ann_file):
+    return
 
-    create_merged_gff(gene_file=TEST_AUGUSTUS, transcript_file=TEST_STRINGTIE)
+def main():
+    parser = argparse.ArgumentParser(description='''Process gff files.''')
+    parser.add_argument('--gene_file', dest='gene', type=str, required=False,
+                        help='GFF file with gene information.')
+    parser.add_argument('--transcript', dest='trans', type=str, required=False,
+                        help='GFF file with transcript information')
+    parser.add_argument('--ann', dest='ann', type=str, required=False,
+                        help='Annotation file that needs to be corrected ')
+
+    args = parser.parse_args()
+    annotation = args.ann
+    gene_file = args.gene or TEST_AUGUSTUS
+    trans_file = args.trans or TEST_STRINGTIE
+    if annotation:
+        correct_annotation(annotation)
+        return
+
+    if gene_file and trans_file:
+        create_merged_gff(gene_file=TEST_AUGUSTUS, transcript_file=TEST_STRINGTIE)
 
     return
 
 
 if __name__ == "__main__":
     main()
+
