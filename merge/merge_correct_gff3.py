@@ -199,7 +199,7 @@ def modify_attr(attr, tid, tidx, gname, term):
 def annotate_existing(attr, count, existing_vals, ann_term, parent_gene, seen_ids=set()):
     vals1 = copy.deepcopy(existing_vals)
 
-    uid, gid, gname, best_match, source, evidence, pident, qcovs = get_attributes(attr)
+    #uid, gid, gname, best_match, source, evidence, pident, qcovs = get_attributes(attr)
     d = dict()
     #seen_ids = set()
 

@@ -1,5 +1,5 @@
 import csv
-
+import copy
 
 TEST_AUGUSTUS = "aug.gff3"
 TEST_STRINGTIE = "stringtie.gff3"
@@ -8,6 +8,10 @@ TEST_STRINGTIE = "stringtie.gff3"
 def parse_row(row):
     # chrom, start, end, strand, attr, feat
     return row[0], row[3], row[4], row[6], row[8], row[2]
+
+
+def is_augustus(data):
+    return data['t_best'] != "stringtie" and data['g_best'] != "augustus"
 
 
 def parse_attrs(attr_str, attr_name):
@@ -104,21 +108,160 @@ def get_count(rows, target_str, target_idx):
     return count
 
 
-def handle_gene_overlap(trans_meta, gmeta_data, gstore, count, overlap_store, prev_gene=""):
-    # Get the transcript counts for this gene
-    gene_overlap = len(overlap_store) == 1
-    g_key = overlap_store[0] if gene_overlap else ""
+def parse_data(gmeta_data, trans_meta, gstore):
+    # Keep track of genes overlapping with this transcript.
+
+    trans_strand = trans_meta['strand']
+
+    overlap_store = check_overlap(gmeta_data, trans_meta)
+    is_gene_overlap = len(overlap_store) == 1
+    is_overlapped = len(overlap_store) > 1
+    no_overlap = len(overlap_store) == 0
+    g_key = overlap_store[0] if is_gene_overlap else ""
     gene_meta = gmeta_data.get(g_key, {})
+    gene_strand = gene_meta.get('strand', '')
+
     t_best = parse_attrs(trans_meta['attr'], "best_match")
     g_best = parse_attrs(gene_meta.get('attr', ""), "best_match")
 
-    g_best = parse_attrs(gene_meta.get('attr', ""), "best_match")
+    data = dict(trans_strand=trans_strand, overlap_store=overlap_store,
+                is_overlapped=is_overlapped,
+                no_overlap=no_overlap,
+                is_gene_overlap=is_gene_overlap,
+                g_key=g_key, gene_meta=gene_meta,
+                gene_strand=gene_strand, gene=gstore[g_key], t_best=t_best, g_best=g_best)
+    return data
 
-    if t_best != "stringtie" and g_best != "augustus":
+
+def modify_gene_attrs(gid, attrs_dict):
+
+    return
+
+def get_attrs_dict(full_attr):
+    uid = parse_attrs(full_attr, "ID")
+    gid = ".".join(uid.split(".")[:-1])
+    gid = gid if gid else parse_attrs(full_attr, "gene_id")
+    gname = parse_attrs(full_attr, "gene_name")
+    source = parse_attrs(full_attr, "best_match")
+    evidence = get_evidence(source)
+    pident, qcovs = get_evidence_vals(evidence, curr_attr)
+
+    data = dict(uid=uid, gid=gid, gname=gname, best_match=best_match, source=source,
+                evidence=evidence, pident=pident, qcovs=qcovs)
+    return data
+
+
+def assign(a, b):
+    a = b
+    return a
+
+def reassigner(key_list, ):
+    return
+
+
+def annotate_transcript(parent_gene, term, seen_ids=set(), collect=dict()):
+    tuid, tgid, tgname, tbest_match, tsource, tevidence, tpident, tqcovs = get_attributes(item[8])
+    collect[tuid] = parent_gene
+    uid, gid, gname, best_match, source, evidence, pident, qcovs = None
+    #var_dict()
+    if term in ["transcript", "gene"]:
+        uid = tuid
+        best_match = tbest_match
+        source = tsource
+        evidence = tevidence
+        pident = tpident
+        qcovs = tqcovs
+        tid = uid
+
+    if term == "gene":
+        uid = tuid
+        gid = tgid
+        source = tsource
+        best_match = tbest_match
+        pident = tpident
+        qcovs = tqcovs
+        evidence = tevidence
+        tid = uid
+
+    if term == "parent_change":
+        gid = parent_gene
+        tid = uid
+
+    if term == "transcript_locus":
+        source, evidence = "locus", "locus"
+        gid = parent_gene
+        tid = tuid
+
+    modified = modify_transcript_attr(uid, tid, count, gid, gname, source, qcovs, pident, evidence,
+                                      ann_term, seen_ids)
+    d[tuid] = extract_attr(tran_attr, "ID=")
+    seen_ids.add(d[tuid])
+
+    return modified
+
+
+def annotate_existing(attr, count, trans_vals, term, parent_gene, seen_ids=set()):
+
+    vals1 = copy.deepcopy(trans_vals)
+    attrs_dict = get_attrs_dict(attr)
+    collect = dict()
+
+    for item in vals1:
+        chrom, start, end, strand, current_attr, feat = parse_row(item)
+        ann_gene = feat == "gene"
+        ann_transcript = feat == "transcript"
+
+        if ann_gene:
+            gid = parse_attrs(current_attr, "ID")
+            modified = modify_gene_attrs(gid, attrs_dict)
+
+        elif ann_transcript:
+            modified = annotate_transcript(parent_gene=parent_gene, term=term,
+                                           seen_ids=seen_ids, collect=collect)
+
+        else:
+            pid = collect[tid]
+            modified = modify_attr(item[8], pid, count, attrs_dict['gname'], term)
+
+        # Modify the attribute column
+        item[8] = modified
+
+    return vals1
+
+
+def handle_gene_overlap(data, count, prev_gene="", seen=set()):
+    # Get the transcript counts for this gene
+    # Keeping the annotations from transcript itself, change the  parent to augustus gene
+
+    # CASE 3A : transcript is annotated and gene is annotated -
+    #  Nothing to do except correct transcript suffix numbers and assigning correct parent id
+    if is_augustus(data=data):
+
+        annotate = "transcript"
+        target = data['gene_meta']['attr']
+        parent_gene = parse_attrs(target, "ID")
+
+        modified_transcript = annotate_existing(gene_attr, tcount, transcript_vals, annotate, parent_gene,
+                                                seen_tids)
+        if gene_key not in seen:
+            merged_store.extend(aug_store[gene_key])
+            seen.add(gene_key)
+        merged_store.extend(modified_transcript)
+
         return
 
 
     return
+
+
+def inc_count(current_key, prev_gene, count):
+    inc = 1
+    # This transcript has been seen before
+    #TODO: this only works if it is immedtialy seen before.
+    if current_key == prev_gene:
+        inc = count + 1
+
+    return inc
 
 
 def create_merged_gff(gene_file, transcript_file):
@@ -127,35 +270,37 @@ def create_merged_gff(gene_file, transcript_file):
     prev_gene, count = "", 0
 
     for tkey, tvals in tstore.items():
-
-        # Get the transcript meta data
+        # Get the transcript meta data and parse
         trans_meta = tmeta_data.get(tkey)
-        trans_strand = trans_meta['strand']
+        data = parse_data(gmeta_data=gmeta_data, trans_meta=trans_meta, gstore=gstore)
+        is_gene_overlap = data['is_gene_overlap']
 
-        # Keep track of genes overlapping with this transcript.
-        overlap_store = check_overlap(gmeta_data, trans_meta)
-        is_overlapped = len(overlap_store) > 1
-        is_gene_overlap = len(overlap_store) == 1
-        g_key = overlap_store[0] if is_gene_overlap else ""
-        gene_meta = gmeta_data.get(g_key, {})
-        gene_strand = gene_meta.get('strand', '')
-        gene = gstore[g_key]
         # CASE 1 : # transcript overlaps with more than one gene - remove transcript.
-        if is_overlapped:
+        if data['is_overlapped']:
             continue
 
-        # Discard if the overlapped gene and transcript do not have the same orientation
-        if is_gene_overlap and gene_strand != trans_strand:
+        # CASE 2 : discard if the overlapped gene and transcript do not have the same orientation
+        if is_gene_overlap and data['gene_strand'] != data['trans_strand']:
             continue
 
+        # CASE 3 : Overlap with an augustus gene
         if is_gene_overlap:
-
-            tcount = get_count(rows=gene, target_str='transcript', target_idx=2)
-            count = count + 1 if g_key == prev_gene else 1
+            tcount = get_count(rows=data['gene'], target_str='transcript', target_idx=2)
+            # Increment the transcript count depending
+            # on how many times this transcript has already been seen
+            count = inc_count(current_key=data['g_key'], prev_gene=prev_gene, count=count)
             tcount += count
-            prev_gene = g_key
+            prev_gene = data['g_key']
+            # Continue once the different types of gene overlaps are handled.
+            if handle_gene_overlap(data=data, count=count, prev_gene=prev_gene):
+                continue
 
-            handle_gene_overlap(prev_gene=prev_gene)
+        # CASE 4 : No overlap - add gene row to the largest transcript
+        if data['no_overlap']:
+            handle_no_overlap()
+            continue
+
+
 
         1 / 0
         pass
